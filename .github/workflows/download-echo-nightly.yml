@@ -1,0 +1,31 @@
+name: Download Echo APK from Nightly
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download ed estrai
+        run: |
+          curl -L -o echo-artifact.zip https://nightly.link/brahmkshatriya/echo/workflows/nightly/main/artifact.zip
+          unzip -q echo-artifact.zip
+          APK=$(find . -name "*.apk" -type f | head -n 1)
+          
+          # Crea il nome con la data (formato: giorno-mese-anno)
+          DATE=$(date +%d-%m-%Y)
+          cp "$APK" "echo-${DATE}.apk"
+          
+          # Crea anche una copia "latest"
+          cp "$APK" echo-latest.apk
+          
+          ls -lh echo-*.apk
+      
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: echo-apk
+          path: echo-*.apk
