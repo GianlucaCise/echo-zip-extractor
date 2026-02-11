@@ -3,49 +3,233 @@ name: Download Echo APK and Create Release
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * 1'
+    - cron: '0 0 * * 1'  # Ogni lunedì a mezzanotte
 
 jobs:
   download_and_release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
       - name: Download ed estrai
+        id: download
         run: |
+          echo "📥 Downloading Echo APK from nightly.link..."
+          
           curl -L -o echo-artifact.zip https://nightly.link/brahmkshatriya/echo/workflows/nightly/main/artifact.zip
+          
+          # Verifica che il download sia riuscito
+          if [ ! -f echo-artifact.zip ]; then
+            echo "❌ Errore: Download fallito"
+            exit 1
+          fi
+          
+          FILE_SIZE=$(stat -c%s echo-artifact.zip 2>/dev/null || stat -f%z echo-artifact.zip 2>/dev/null)
+          echo "Downloaded ${FILE_SIZE} bytes"
+          
+          if [ "$FILE_SIZE" -lt 1000 ]; then
+            echo "❌ Errore: File troppo piccolo, download fallito"
+            exit 1
+          fi
+          
           unzip -q echo-artifact.zip
           APK=$(find . -name "*.apk" -type f | head -n 1)
           
-          # Formato: 11-02-2026_18-30
+          if [ -z "$APK" ]; then
+            echo "❌ Errore: Nessun APK trovato nell'artifact"
+            exit 1
+          fi
+          
+          echo "✅ APK trovato: ${APK}"
+          
+          # Formato: 11-02-2025_18-30
           DATE=$(date +%d-%m-%Y_%H-%M)
           echo "RELEASE_TAG=$DATE" >> $GITHUB_ENV
           
+          # Copia i file
           cp "$APK" "echo-${DATE}.apk"
           cp "$APK" echo-latest.apk
-
-#      - name: Upload APK as Artifact
-#        uses: actions/upload-artifact@v4
-#        with:
-#          name: echo-apk-${{ env.RELEASE_TAG }}
-#          path: echo-*.apk
-#          retention-days: 7 # Opzionale: elimina l'artifact dopo 7 giorni per risparmiare spazio
           
-
+          # Ottieni informazioni sull'APK
+          APK_SIZE=$(stat -c%s "echo-${DATE}.apk" 2>/dev/null || stat -f%z "echo-${DATE}.apk" 2>/dev/null)
+          APK_SIZE_MB=$(echo "scale=2; $APK_SIZE / 1024 / 1024" | bc)
+          echo "APK_SIZE_MB=${APK_SIZE_MB}" >> $GITHUB_ENV
+          
+          # Calcola hash MD5 e SHA256
+          MD5_HASH=$(md5sum "echo-${DATE}.apk" | cut -d' ' -f1)
+          SHA256_HASH=$(sha256sum "echo-${DATE}.apk" | cut -d' ' -f1)
+          echo "MD5_HASH=${MD5_HASH}" >> $GITHUB_ENV
+          echo "SHA256_HASH=${SHA256_HASH}" >> $GITHUB_ENV
+          
+          echo "📊 File info:"
+          ls -lh echo-*.apk
+          echo "MD5: ${MD5_HASH}"
+          echo "SHA256: ${SHA256_HASH}"
+      
+      - name: Check if APK changed from last release
+        id: check_change
+        continue-on-error: true
+        run: |
+          # Scarica l'ultima release (se esiste)
+          LAST_RELEASE=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest)
+          
+          if echo "$LAST_RELEASE" | jq -e '.assets[]' > /dev/null 2>&1; then
+            # Ottieni l'URL dell'ultimo echo-latest.apk
+            LAST_APK_URL=$(echo "$LAST_RELEASE" | jq -r '.assets[] | select(.name == "echo-latest.apk") | .browser_download_url')
+            
+            if [ -n "$LAST_APK_URL" ]; then
+              echo "📥 Scarico l'ultimo APK per confronto..."
+              curl -L -o last-echo.apk "$LAST_APK_URL"
+              
+              # Confronta gli hash
+              CURRENT_MD5=$(md5sum echo-latest.apk | cut -d' ' -f1)
+              LAST_MD5=$(md5sum last-echo.apk | cut -d' ' -f1)
+              
+              if [ "$CURRENT_MD5" == "$LAST_MD5" ]; then
+                echo "changed=false" >> $GITHUB_OUTPUT
+                echo "⏭️ L'APK non è cambiato rispetto all'ultima release"
+              else
+                echo "changed=true" >> $GITHUB_OUTPUT
+                echo "✨ Nuova versione APK rilevata!"
+              fi
+            else
+              echo "changed=true" >> $GITHUB_OUTPUT
+              echo "📦 Prima release"
+            fi
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "📦 Nessuna release precedente trovata"
+          fi
+      
+      - name: Get Echo repository info
+        id: echo_info
+        continue-on-error: true
+        run: |
+          # Ottieni info dalla repo originale di Echo
+          ECHO_INFO=$(curl -s https://api.github.com/repos/brahmkshatriya/echo)
+          ECHO_STARS=$(echo "$ECHO_INFO" | jq -r '.stargazers_count')
+          ECHO_DESC=$(echo "$ECHO_INFO" | jq -r '.description')
+          
+          echo "ECHO_STARS=${ECHO_STARS}" >> $GITHUB_ENV
+          echo "ECHO_DESC=${ECHO_DESC}" >> $GITHUB_ENV
+          
+          # Ottieni l'ultimo commit del branch main
+          LAST_COMMIT=$(curl -s https://api.github.com/repos/brahmkshatriya/echo/commits/main)
+          COMMIT_MSG=$(echo "$LAST_COMMIT" | jq -r '.commit.message' | head -n 1)
+          COMMIT_SHA=$(echo "$LAST_COMMIT" | jq -r '.sha' | cut -c1-7)
+          COMMIT_DATE=$(echo "$LAST_COMMIT" | jq -r '.commit.author.date')
+          
+          echo "COMMIT_MSG=${COMMIT_MSG}" >> $GITHUB_ENV
+          echo "COMMIT_SHA=${COMMIT_SHA}" >> $GITHUB_ENV
+          echo "COMMIT_DATE=${COMMIT_DATE}" >> $GITHUB_ENV
+      
+      - name: Create checksums file
+        run: |
+          cat > CHECKSUMS.txt << EOF
+MD5: ${{ env.MD5_HASH }}
+SHA256: ${{ env.SHA256_HASH }}
+EOF
+          cat CHECKSUMS.txt
+      
       - name: Create Release
+        if: steps.check_change.outputs.changed != 'false'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: Echo ${{ env.RELEASE_TAG }}
+          name: Echo Build - ${{ env.RELEASE_TAG }}
           body: |
-            ### 📦 Echo Nightly Build
-            - **Data caricamento:** ${{ env.RELEASE_TAG }}
-            - **Sorgente:** [Nightly Link](https://nightly.link/brahmkshatriya/echo/workflows/nightly/main/artifact.zip)
-
-            *This repository is not affiliated with Echo*
-            L'APK `echo-latest.apk` punta sempre all'ultima versione caricata in questa release.
+            ## 📦 Echo Nightly Build
+            
+            > **Note**: This repository is not affiliated with the official Echo project.
+            
+            ### 📱 APK Info
+            - **Size:** ${{ env.APK_SIZE_MB }} MB
+            - **Download Date:** ${{ env.RELEASE_TAG }}
+            - **Changed:** ${{ steps.check_change.outputs.changed == 'true' && '✅ Yes' || '❌ No' }}
+            
+            ### 🔐 Checksums
+            ```
+            MD5:    ${{ env.MD5_HASH }}
+            SHA256: ${{ env.SHA256_HASH }}
+            ```
+            
+            ### 📝 Latest Echo Commit
+            - **Commit:** [`${{ env.COMMIT_SHA }}`](https://github.com/brahmkshatriya/echo/commit/${{ env.COMMIT_SHA }})
+            - **Message:** ${{ env.COMMIT_MSG }}
+            - **Date:** ${{ env.COMMIT_DATE }}
+            
+            ### 🔗 Links
+            - 🌟 [Echo Repository](https://github.com/brahmkshatriya/echo) (${{ env.ECHO_STARS }} stars)
+            - 📥 [Nightly Link Source](https://nightly.link/brahmkshatriya/echo/workflows/nightly/main/artifact.zip)
+            
+            ### 📄 Files
+            - `echo-${{ env.RELEASE_TAG }}.apk` - APK with timestamp
+            - `echo-latest.apk` - Always points to the latest version
+            - `CHECKSUMS.txt` - MD5 and SHA256 hashes
+            
+            ---
+            
+            **Description:** ${{ env.ECHO_DESC }}
           draft: false
           prerelease: false
           files: |
             echo-${{ env.RELEASE_TAG }}.apk
             echo-latest.apk
+            CHECKSUMS.txt
+      
+      - name: Skip release (no changes)
+        if: steps.check_change.outputs.changed == 'false'
+        run: |
+          echo "⏭️ Saltata creazione release: L'APK non è cambiato rispetto all'ultima versione"
+          echo "ℹ️ Per forzare la creazione di una release, esegui manualmente il workflow"
+      
+#      - name: Clean up old releases (keep last 10)
+#        if: steps.check_change.outputs.changed != 'false'
+#        continue-on-error: true
+#        run: |
+#          echo "🧹 Pulizia release vecchie..."
+#          
+#          # Ottieni tutte le release
+#          RELEASES=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+#            https://api.github.com/repos/${{ github.repository }}/releases)
+#          
+#          # Conta le release
+#          RELEASE_COUNT=$(echo "$RELEASES" | jq '. | length')
+#          echo "📊 Release totali: ${RELEASE_COUNT}"
+#          
+#          # Se ci sono più di 10 release, elimina le più vecchie
+#          if [ "$RELEASE_COUNT" -gt 10 ]; then
+#            echo "🗑️ Eliminazione delle release più vecchie (mantengo le ultime 10)..."
+#            
+#            # Ottieni gli ID delle release da eliminare (dalla 11 in poi)
+#            DELETE_IDS=$(echo "$RELEASES" | jq -r '.[10:] | .[].id')
+#            
+#            for ID in $DELETE_IDS; do
+#              echo "Eliminazione release ID: $ID"
+#              curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+#                https://api.github.com/repos/${{ github.repository }}/releases/$ID
+#            done
+#            
+#            echo "✅ Pulizia completata"
+#          else
+#            echo "✅ Nessuna pulizia necessaria (release: ${RELEASE_COUNT}/10)"
+#          fi
+      
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 📊 Workflow Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release Tag:** ${{ env.RELEASE_TAG }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **APK Size:** ${{ env.APK_SIZE_MB }} MB" >> $GITHUB_STEP_SUMMARY
+          echo "- **Changed:** ${{ steps.check_change.outputs.changed }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **MD5:** \`${{ env.MD5_HASH }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **SHA256:** \`${{ env.SHA256_HASH }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Quick Links" >> $GITHUB_STEP_SUMMARY
+          echo "- [Latest Release](https://github.com/${{ github.repository }}/releases/latest)" >> $GITHUB_STEP_SUMMARY
+          echo "- [All Releases](https://github.com/${{ github.repository }}/releases)" >> $GITHUB_STEP_SUMMARY
