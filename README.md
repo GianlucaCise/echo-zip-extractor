@@ -22,7 +22,7 @@ This repository automatically downloads and mirrors the latest Echo APK builds f
 - ✅ Always up-to-date versions
 - ✅ Version-tagged releases (v1.2.3, v1.2.4, etc.)
 - ✅ Checksums for verification
-- ✅ No need to wait for official releases
+- ✅ Easy to add in app like Obtanium
 
 ## 📥 Installation
 
