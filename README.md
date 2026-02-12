@@ -1,9 +1,9 @@
 # 📱 Echo APK Auto-Downloader
 
 > Automated nightly builds of Echo APK from official repository
--
+
 > Piccola nota(si, in italiano): il counter del numero di visitor è un po' buggato perchè tiene conto anche di tutte le volte che si ricarica la pagina
--
+
 > Much of the content in this repository is created with AI, if you find a problem please report it with an issue
 
 [![Latest Release](https://img.shields.io/github/v/release/GianlucaCise/echo-zip-extractor)](https://github.com/GianlucaCise/echo-zip-extractor/releases/latest)
