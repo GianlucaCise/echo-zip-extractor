@@ -175,28 +175,28 @@ jobs:
       
       - name: Create version info file
         run: |
-          cat > VERSION_INFO.txt << 'EOFMARKER'
-Echo APK Version Information
-============================
-
-Version Name: ${{ steps.apk_info.outputs.version_name }}
-Version Code: ${{ steps.apk_info.outputs.version_code }}
-Package Name: ${{ steps.apk_info.outputs.package_name }}
-
-Android Requirements:
-- Minimum SDK: ${{ steps.apk_info.outputs.min_sdk }}
-- Target SDK: ${{ steps.apk_info.outputs.target_sdk }}
-
-File Information:
-- Size: ${{ steps.checksums.outputs.apk_size_mb }} MB
-- MD5: ${{ steps.checksums.outputs.md5_hash }}
-- SHA256: ${{ steps.checksums.outputs.sha256_hash }}
-
-Build Information:
-- Download Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-- Echo Commit: ${{ steps.echo_info.outputs.commit_sha }}
-- Commit Message: ${{ steps.echo_info.outputs.commit_msg }}
-EOFMARKER
+          {
+            echo "Echo APK Version Information"
+            echo "============================"
+            echo ""
+            echo "Version Name: ${{ steps.apk_info.outputs.version_name }}"
+            echo "Version Code: ${{ steps.apk_info.outputs.version_code }}"
+            echo "Package Name: ${{ steps.apk_info.outputs.package_name }}"
+            echo ""
+            echo "Android Requirements:"
+            echo "- Minimum SDK: ${{ steps.apk_info.outputs.min_sdk }}"
+            echo "- Target SDK: ${{ steps.apk_info.outputs.target_sdk }}"
+            echo ""
+            echo "File Information:"
+            echo "- Size: ${{ steps.checksums.outputs.apk_size_mb }} MB"
+            echo "- MD5: ${{ steps.checksums.outputs.md5_hash }}"
+            echo "- SHA256: ${{ steps.checksums.outputs.sha256_hash }}"
+            echo ""
+            echo "Build Information:"
+            echo "- Download Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+            echo "- Echo Commit: ${{ steps.echo_info.outputs.commit_sha }}"
+            echo "- Commit Message: ${{ steps.echo_info.outputs.commit_msg }}"
+          } > VERSION_INFO.txt
           
           cat VERSION_INFO.txt
       
