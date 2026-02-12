@@ -1,0 +1,134 @@
+name: Generate Changelog
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  changelog:
+    name: 📝 Generate Changelog
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Get release info
+        id: release
+        run: |
+          # Ottieni tag corrente e precedente
+          CURRENT_TAG=$(git describe --tags --abbrev=0)
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 ${CURRENT_TAG}^ 2>/dev/null || echo "")
+          
+          echo "current=$CURRENT_TAG" >> $GITHUB_OUTPUT
+          echo "previous=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+          
+          echo "Current: $CURRENT_TAG"
+          echo "Previous: $PREVIOUS_TAG"
+      
+      - name: Get Echo commit range
+        id: commits
+        run: |
+          # Ottieni i commit di Echo tra le due versioni
+          
+          if [ -n "${{ steps.release.outputs.previous }}" ]; then
+            # Scarica info dalle release notes
+            CURRENT_COMMIT=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ steps.release.outputs.current }} | jq -r '.body' | grep -oP 'commit/\K[a-f0-9]{7}' | head -n 1 || echo "")
+            PREVIOUS_COMMIT=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ steps.release.outputs.previous }} | jq -r '.body' | grep -oP 'commit/\K[a-f0-9]{7}' | head -n 1 || echo "")
+            
+            echo "current_commit=$CURRENT_COMMIT" >> $GITHUB_OUTPUT
+            echo "previous_commit=$PREVIOUS_COMMIT" >> $GITHUB_OUTPUT
+            
+            if [ -n "$CURRENT_COMMIT" ] && [ -n "$PREVIOUS_COMMIT" ]; then
+              # Ottieni la lista dei commit di Echo
+              ECHO_COMMITS=$(curl -s "https://api.github.com/repos/brahmkshatriya/echo/compare/${PREVIOUS_COMMIT}...${CURRENT_COMMIT}" | jq -r '.commits[] | "- \(.commit.message | split("\n")[0]) ([\(.sha[0:7])](https://github.com/brahmkshatriya/echo/commit/\(.sha)))"')
+              
+              echo "commits<<EOF" >> $GITHUB_OUTPUT
+              echo "$ECHO_COMMITS" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+            fi
+          fi
+      
+      - name: Generate changelog
+        run: |
+          cat > CHANGELOG.md << 'ENDMARKER'
+          # 📋 Changelog
+          
+          ## ${{ steps.release.outputs.current }}
+          
+          **Release Date:** $(date -u +"%Y-%m-%d")
+          
+          ### 🔗 Comparison
+          
+          ENDMARKER
+          
+          if [ -n "${{ steps.commits.outputs.commits }}" ]; then
+            cat >> CHANGELOG.md << 'ENDMARKER'
+          ### 📝 Changes in Echo
+          
+          ${{ steps.commits.outputs.commits }}
+          
+          [View full comparison](https://github.com/brahmkshatriya/echo/compare/${{ steps.commits.outputs.previous_commit }}...${{ steps.commits.outputs.current_commit }})
+          
+          ENDMARKER
+          else
+            cat >> CHANGELOG.md << 'ENDMARKER'
+          No commit information available. This may be the first release or commit info could not be extracted.
+          
+          ENDMARKER
+          fi
+          
+          cat >> CHANGELOG.md << 'ENDMARKER'
+          ### 📥 Downloads
+          
+          - [echo-${{ steps.release.outputs.current }}.apk](https://github.com/${{ github.repository }}/releases/download/${{ steps.release.outputs.current }}/echo-${{ steps.release.outputs.current }}.apk)
+          - [echo-latest.apk](https://github.com/${{ github.repository }}/releases/download/${{ steps.release.outputs.current }}/echo-latest.apk)
+          
+          ---
+          
+          *Automatically generated changelog*
+          ENDMARKER
+          
+          cat CHANGELOG.md
+      
+      - name: Create changelog summary
+        run: |
+          echo "## 📋 Changelog Generated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat CHANGELOG.md >> $GITHUB_STEP_SUMMARY
+      
+      - name: Upload changelog
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: CHANGELOG.md
+          retention-days: 90
+      
+      - name: Comment on release (if possible)
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            const fs = require('fs');
+            const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
+            
+            // Trova la release corrispondente
+            const releases = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+            
+            const currentRelease = releases.data.find(r => r.tag_name === '${{ steps.release.outputs.current }}');
+            
+            if (currentRelease) {
+              // Aggiungi il changelog al corpo della release
+              await github.rest.repos.updateRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: currentRelease.id,
+                body: currentRelease.body + '\n\n---\n\n' + changelog
+              });
+            }
