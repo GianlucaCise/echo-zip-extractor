@@ -1,0 +1,141 @@
+name: APK Security Check
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  security_check:
+    name: 🛡️ Security Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Download latest APK
+        run: |
+          # Scarica l'APK dall'ultima release
+          DOWNLOAD_URL=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest | jq -r '.assets[] | select(.name == "echo-latest.apk") | .browser_download_url')
+          curl -L -o echo.apk "$DOWNLOAD_URL"
+      
+      - name: Install analysis tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y aapt apksigner
+          
+          # Install apkanalyzer (opzionale, per analisi più profonda)
+          pip install androguard
+      
+      - name: Basic APK info
+        id: info
+        run: |
+          echo "## 📱 APK Information" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Dimensione
+          SIZE=$(stat -c%s echo.apk)
+          SIZE_MB=$(echo "scale=2; $SIZE / 1024 / 1024" | bc)
+          echo "- **Size:** ${SIZE_MB} MB" >> $GITHUB_STEP_SUMMARY
+          
+          # Versione e package
+          VERSION=$(aapt dump badging echo.apk | grep "versionName" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          PACKAGE=$(aapt dump badging echo.apk | grep "package:" | sed -n "s/.*name='\([^']*\)'.*/\1/p")
+          MIN_SDK=$(aapt dump badging echo.apk | grep "sdkVersion" | sed -n "s/.*sdkVersion:'\([^']*\)'.*/\1/p")
+          
+          echo "- **Version:** ${VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Package:** ${PACKAGE}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Min SDK:** API ${MIN_SDK}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Check permissions
+        run: |
+          echo "## 🔐 Permissions Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          aapt dump permissions echo.apk >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check for dangerous permissions
+          DANGEROUS_PERMS=$(aapt dump permissions echo.apk | grep -E "CAMERA|LOCATION|MICROPHONE|CONTACTS|SMS|CALL|STORAGE" || true)
+          
+          if [ -n "$DANGEROUS_PERMS" ]; then
+            echo "⚠️ **Potentially sensitive permissions detected:**" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "$DANGEROUS_PERMS" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ No highly sensitive permissions detected" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Verify APK signature
+        run: |
+          echo "## ✍️ Signature Verification" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Verifica la firma
+          apksigner verify --print-certs echo.apk > signature.txt 2>&1 || true
+          
+          if grep -q "Verified using v1 scheme" signature.txt || grep -q "Verified using v2 scheme" signature.txt; then
+            echo "✅ APK signature is valid" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Could not verify APK signature" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "<details><summary>Signature Details</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat signature.txt >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Check for native libraries
+        run: |
+          echo "## 🔧 Native Libraries" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Estrai info sulle librerie native
+          NATIVE=$(aapt dump badging echo.apk | grep "native-code" || echo "No native libraries")
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "$NATIVE" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Generate security report
+        run: |
+          cat > SECURITY_REPORT.md << 'EOF'
+          # 🛡️ APK Security Analysis Report
+          
+          Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          
+          ## Summary
+          
+          This report contains automated security checks for the Echo APK.
+          
+          ⚠️ **Note:** This is an automated analysis. Manual review is recommended for production use.
+          
+          ## Findings
+          
+          Check the workflow run summary for detailed results.
+          
+          ## Recommendations
+          
+          - Always verify checksums before installation
+          - Review permissions carefully
+          - Download only from trusted sources
+          - Keep your device updated
+          
+          ## Report Generated By
+          
+          GitHub Actions - Echo APK Mirror
+          EOF
+          
+          cat SECURITY_REPORT.md
+      
+      - name: Upload security report
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report
+          path: SECURITY_REPORT.md
+          retention-days: 90
