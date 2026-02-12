@@ -4,6 +4,7 @@
 
 [![Latest Release](https://img.shields.io/github/v/release/GianlucaCise/echo-zip-extractor)](https://github.com/GianlucaCise/echo-zip-extractor/releases/latest)
 [![Download Count](https://img.shields.io/github/downloads/GianlucaCise/echo-zip-extractor/total)](https://github.com/GianlucaCise/echo-zip-extractor/releases)
+![Visitors](https://visitor-badge.laobi.icu/badge?page_id=GianlucaCise.echo-zip-extractor)
 [![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/GianlucaCise/echo-zip-extractor/download-echo-with-version.yml)](https://github.com/GianlucaCise/echo-zip-extractor/actions)
 ![GitHub last commit](https://img.shields.io/github/last-commit/GianlucaCise/echo-zip-extractor)
 ![License](https://img.shields.io/github/license/brahmkshatriya/echo)
