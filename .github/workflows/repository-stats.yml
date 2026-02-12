@@ -1,0 +1,171 @@
+name: Repository Statistics
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Ogni domenica a mezzanotte
+  workflow_dispatch:
+
+jobs:
+  generate_stats:
+    name: 📊 Generate Stats
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Get repository stats
+        id: stats
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            
+            // Stats repository
+            const repoData = await github.rest.repos.get({ owner, repo });
+            const stars = repoData.data.stargazers_count;
+            const forks = repoData.data.forks_count;
+            const watchers = repoData.data.subscribers_count;
+            
+            // Stats release
+            const releases = await github.rest.repos.listReleases({ owner, repo });
+            const releaseCount = releases.data.length;
+            
+            // Calcola downloads totali
+            let totalDownloads = 0;
+            for (const release of releases.data) {
+              for (const asset of release.assets) {
+                totalDownloads += asset.download_count;
+              }
+            }
+            
+            // Release più scaricata
+            let mostDownloaded = { name: 'N/A', downloads: 0 };
+            for (const release of releases.data) {
+              let releaseDownloads = 0;
+              for (const asset of release.assets) {
+                releaseDownloads += asset.download_count;
+              }
+              if (releaseDownloads > mostDownloaded.downloads) {
+                mostDownloaded = { name: release.tag_name, downloads: releaseDownloads };
+              }
+            }
+            
+            // Stats issue
+            const issues = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              state: 'all'
+            });
+            const openIssues = issues.data.filter(i => i.state === 'open' && !i.pull_request).length;
+            const closedIssues = issues.data.filter(i => i.state === 'closed' && !i.pull_request).length;
+            
+            // Salva negli output
+            core.setOutput('stars', stars);
+            core.setOutput('forks', forks);
+            core.setOutput('watchers', watchers);
+            core.setOutput('releases', releaseCount);
+            core.setOutput('total_downloads', totalDownloads);
+            core.setOutput('most_downloaded', mostDownloaded.name);
+            core.setOutput('most_downloaded_count', mostDownloaded.downloads);
+            core.setOutput('open_issues', openIssues);
+            core.setOutput('closed_issues', closedIssues);
+            
+            return {
+              stars,
+              forks,
+              watchers,
+              releaseCount,
+              totalDownloads,
+              mostDownloaded,
+              openIssues,
+              closedIssues
+            };
+      
+      - name: Get Echo upstream stats
+        id: echo_stats
+        run: |
+          ECHO_DATA=$(curl -s https://api.github.com/repos/brahmkshatriya/echo)
+          ECHO_STARS=$(echo "$ECHO_DATA" | jq -r '.stargazers_count')
+          ECHO_FORKS=$(echo "$ECHO_DATA" | jq -r '.forks_count')
+          
+          echo "echo_stars=$ECHO_STARS" >> $GITHUB_OUTPUT
+          echo "echo_forks=$ECHO_FORKS" >> $GITHUB_OUTPUT
+      
+      - name: Generate stats report
+        run: |
+          cat > STATS.md << 'EOF'
+          # 📊 Repository Statistics
+          
+          **Generated:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          
+          ## 🎯 This Repository
+          
+          | Metric | Count |
+          |--------|-------|
+          | ⭐ Stars | ${{ steps.stats.outputs.stars }} |
+          | 🔱 Forks | ${{ steps.stats.outputs.forks }} |
+          | 👀 Watchers | ${{ steps.stats.outputs.watchers }} |
+          | 📦 Releases | ${{ steps.stats.outputs.releases }} |
+          | 📥 Total Downloads | ${{ steps.stats.outputs.total_downloads }} |
+          | 🏆 Most Downloaded | ${{ steps.stats.outputs.most_downloaded }} (${{ steps.stats.outputs.most_downloaded_count }} downloads) |
+          | 📋 Open Issues | ${{ steps.stats.outputs.open_issues }} |
+          | ✅ Closed Issues | ${{ steps.stats.outputs.closed_issues }} |
+          
+          ## 🎵 Echo Upstream
+          
+          | Metric | Count |
+          |--------|-------|
+          | ⭐ Stars | ${{ steps.echo_stats.outputs.echo_stars }} |
+          | 🔱 Forks | ${{ steps.echo_stats.outputs.echo_forks }} |
+          
+          ## 📈 Insights
+          
+          - **Average downloads per release:** $(echo "scale=2; ${{ steps.stats.outputs.total_downloads }} / ${{ steps.stats.outputs.releases }}" | bc)
+          - **Issue resolution rate:** $(echo "scale=2; ${{ steps.stats.outputs.closed_issues }} * 100 / (${{ steps.stats.outputs.open_issues }} + ${{ steps.stats.outputs.closed_issues }})" | bc)%
+          
+          ---
+          
+          *Statistics are updated weekly*
+          EOF
+          
+          cat STATS.md
+      
+      - name: Create stats summary
+        run: |
+          echo "# 📊 Weekly Statistics Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat STATS.md >> $GITHUB_STEP_SUMMARY
+      
+      - name: Commit stats to repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Crea o aggiorna il file stats
+          mkdir -p .github/stats
+          mv STATS.md .github/stats/latest.md
+          
+          # Aggiungi anche con timestamp
+          cp .github/stats/latest.md ".github/stats/$(date +%Y-%m-%d).md"
+          
+          git add .github/stats/
+          git commit -m "📊 Update repository statistics [skip ci]" || echo "No changes to commit"
+          git push || echo "Nothing to push"
+      
+      - name: Create stats badge
+        run: |
+          # Crea un file JSON per shields.io dynamic badge
+          cat > .github/stats/downloads.json << EOF
+          {
+            "schemaVersion": 1,
+            "label": "downloads",
+            "message": "${{ steps.stats.outputs.total_downloads }}",
+            "color": "brightgreen"
+          }
+          EOF
+          
+          git add .github/stats/downloads.json
+          git commit -m "📊 Update download badge [skip ci]" || echo "No changes"
+          git push || echo "Nothing to push"
