@@ -1,9 +1,9 @@
-name: Download Echo APK and Create Release
+name: Download Echo APK with Version
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * 1'  # Ogni lunedì a mezzanotte
+    - cron: '0 0 * * 1'
 
 jobs:
   download_and_release:
@@ -15,14 +15,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       
-      - name: Download ed estrai
-        id: download
+      - name: Install aapt (Android Asset Packaging Tool)
+        run: |
+          echo "📦 Installing aapt..."
+          sudo apt-get update
+          sudo apt-get install -y aapt
+          aapt version
+      
+      - name: Download ed estrai APK
         run: |
           echo "📥 Downloading Echo APK from nightly.link..."
           
           curl -L -o echo-artifact.zip https://nightly.link/brahmkshatriya/echo/workflows/nightly/main/artifact.zip
           
-          # Verifica che il download sia riuscito
           if [ ! -f echo-artifact.zip ]; then
             echo "❌ Errore: Download fallito"
             exit 1
@@ -32,7 +37,7 @@ jobs:
           echo "Downloaded ${FILE_SIZE} bytes"
           
           if [ "$FILE_SIZE" -lt 1000 ]; then
-            echo "❌ Errore: File troppo piccolo, download fallito"
+            echo "❌ Errore: File troppo piccolo"
             exit 1
           fi
           
@@ -40,200 +45,233 @@ jobs:
           APK=$(find . -name "*.apk" -type f | head -n 1)
           
           if [ -z "$APK" ]; then
-            echo "❌ Errore: Nessun APK trovato nell'artifact"
+            echo "❌ Errore: Nessun APK trovato"
             exit 1
           fi
           
           echo "✅ APK trovato: ${APK}"
-          
-          # Formato: 11-02-2025_18-30
-          DATE=$(date +%d-%m-%Y_%H-%M)
-          echo "RELEASE_TAG=$DATE" >> $GITHUB_ENV
-          
-          # Copia i file
-          cp "$APK" "echo-${DATE}.apk"
-          cp "$APK" echo-latest.apk
-          
-          # Ottieni informazioni sull'APK
-          APK_SIZE=$(stat -c%s "echo-${DATE}.apk" 2>/dev/null || stat -f%z "echo-${DATE}.apk" 2>/dev/null)
-          APK_SIZE_MB=$(echo "scale=2; $APK_SIZE / 1024 / 1024" | bc)
-          echo "APK_SIZE_MB=${APK_SIZE_MB}" >> $GITHUB_ENV
-          
-          # Calcola hash MD5 e SHA256
-          MD5_HASH=$(md5sum "echo-${DATE}.apk" | cut -d' ' -f1)
-          SHA256_HASH=$(sha256sum "echo-${DATE}.apk" | cut -d' ' -f1)
-          echo "MD5_HASH=${MD5_HASH}" >> $GITHUB_ENV
-          echo "SHA256_HASH=${SHA256_HASH}" >> $GITHUB_ENV
-          
-          echo "📊 File info:"
-          ls -lh echo-*.apk
-          echo "MD5: ${MD5_HASH}"
-          echo "SHA256: ${SHA256_HASH}"
+          cp "$APK" echo-temp.apk
       
-      - name: Check if APK changed from last release
-        id: check_change
+      - name: Estrai informazioni versione dall'APK
+        id: apk_info
+        run: |
+          echo "🔍 Estraendo informazioni dall'APK..."
+          
+          # Usa aapt per ottenere le info dall'APK
+          APK_INFO=$(aapt dump badging echo-temp.apk)
+          
+          # Estrai versionName (es: "1.2.3")
+          VERSION_NAME=$(echo "$APK_INFO" | grep "versionName" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          
+          # Estrai versionCode (es: "123")
+          VERSION_CODE=$(echo "$APK_INFO" | grep "versionCode" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
+          
+          # Estrai package name
+          PACKAGE_NAME=$(echo "$APK_INFO" | grep "package:" | sed -n "s/.*name='\([^']*\)'.*/\1/p")
+          
+          # Estrai minSdkVersion e targetSdkVersion
+          MIN_SDK=$(echo "$APK_INFO" | grep "sdkVersion" | sed -n "s/.*sdkVersion:'\([^']*\)'.*/\1/p")
+          TARGET_SDK=$(echo "$APK_INFO" | grep "targetSdkVersion" | sed -n "s/.*targetSdkVersion:'\([^']*\)'.*/\1/p")
+          
+          echo "📱 Informazioni APK:"
+          echo "  - Version Name: ${VERSION_NAME}"
+          echo "  - Version Code: ${VERSION_CODE}"
+          echo "  - Package: ${PACKAGE_NAME}"
+          echo "  - Min SDK: ${MIN_SDK}"
+          echo "  - Target SDK: ${TARGET_SDK}"
+          
+          # Salva negli output
+          echo "version_name=${VERSION_NAME}" >> $GITHUB_OUTPUT
+          echo "version_code=${VERSION_CODE}" >> $GITHUB_OUTPUT
+          echo "package_name=${PACKAGE_NAME}" >> $GITHUB_OUTPUT
+          echo "min_sdk=${MIN_SDK}" >> $GITHUB_OUTPUT
+          echo "target_sdk=${TARGET_SDK}" >> $GITHUB_OUTPUT
+          
+          # Crea il tag della release usando la versione
+          DATE=$(date +%d-%m-%Y_%H-%M)
+          
+          # Se la versione esiste, usala nel tag
+          if [ -n "$VERSION_NAME" ]; then
+            RELEASE_TAG="v${VERSION_NAME}"
+            echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
+            echo "release_name=Echo ${VERSION_NAME}" >> $GITHUB_OUTPUT
+          else
+            # Fallback al formato data
+            RELEASE_TAG="${DATE}"
+            echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
+            echo "release_name=Echo Build ${DATE}" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "🏷️ Release tag: ${RELEASE_TAG}"
+      
+      - name: Rinomina APK con versione
+        run: |
+          VERSION="${{ steps.apk_info.outputs.version_name }}"
+          
+          if [ -n "$VERSION" ]; then
+            cp echo-temp.apk "echo-${VERSION}.apk"
+            echo "✅ APK rinominato in: echo-${VERSION}.apk"
+          else
+            DATE=$(date +%d-%m-%Y_%H-%M)
+            cp echo-temp.apk "echo-${DATE}.apk"
+            echo "✅ APK rinominato in: echo-${DATE}.apk"
+          fi
+          
+          cp echo-temp.apk echo-latest.apk
+          
+          ls -lh echo-*.apk
+      
+      - name: Calcola checksums
+        id: checksums
+        run: |
+          APK_SIZE=$(stat -c%s echo-latest.apk 2>/dev/null || stat -f%z echo-latest.apk 2>/dev/null)
+          APK_SIZE_MB=$(awk "BEGIN {printf \"%.2f\", $APK_SIZE / 1024 / 1024}")
+          echo "apk_size_mb=${APK_SIZE_MB}" >> $GITHUB_OUTPUT
+          
+          MD5_HASH=$(md5sum echo-latest.apk | cut -d' ' -f1)
+          SHA256_HASH=$(sha256sum echo-latest.apk | cut -d' ' -f1)
+          echo "md5_hash=${MD5_HASH}" >> $GITHUB_OUTPUT
+          echo "sha256_hash=${SHA256_HASH}" >> $GITHUB_OUTPUT
+          
+          echo "📊 Checksums:"
+          echo "  MD5: ${MD5_HASH}"
+          echo "  SHA256: ${SHA256_HASH}"
+          echo "  Size: ${APK_SIZE_MB} MB"
+      
+      - name: Check if version already released
+        id: check_existing
         continue-on-error: true
         run: |
-          # Scarica l'ultima release (se esiste)
-          LAST_RELEASE=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest)
+          TAG="${{ steps.apk_info.outputs.release_tag }}"
           
-          if echo "$LAST_RELEASE" | jq -e '.assets[]' > /dev/null 2>&1; then
-            # Ottieni l'URL dell'ultimo echo-latest.apk
-            LAST_APK_URL=$(echo "$LAST_RELEASE" | jq -r '.assets[] | select(.name == "echo-latest.apk") | .browser_download_url')
-            
-            if [ -n "$LAST_APK_URL" ]; then
-              echo "📥 Scarico l'ultimo APK per confronto..."
-              curl -L -o last-echo.apk "$LAST_APK_URL"
-              
-              # Confronta gli hash
-              CURRENT_MD5=$(md5sum echo-latest.apk | cut -d' ' -f1)
-              LAST_MD5=$(md5sum last-echo.apk | cut -d' ' -f1)
-              
-              if [ "$CURRENT_MD5" == "$LAST_MD5" ]; then
-                echo "changed=false" >> $GITHUB_OUTPUT
-                echo "⏭️ L'APK non è cambiato rispetto all'ultima release"
-              else
-                echo "changed=true" >> $GITHUB_OUTPUT
-                echo "✨ Nuova versione APK rilevata!"
-              fi
-            else
-              echo "changed=true" >> $GITHUB_OUTPUT
-              echo "📦 Prima release"
-            fi
+          # Controlla se il tag esiste già
+          if git ls-remote --tags origin | grep -q "refs/tags/${TAG}"; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Release ${TAG} già esistente"
           else
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "📦 Nessuna release precedente trovata"
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "✅ Nuova versione: ${TAG}"
           fi
       
       - name: Get Echo repository info
         id: echo_info
         continue-on-error: true
         run: |
-          # Ottieni info dalla repo originale di Echo
           ECHO_INFO=$(curl -s https://api.github.com/repos/brahmkshatriya/echo)
           ECHO_STARS=$(echo "$ECHO_INFO" | jq -r '.stargazers_count')
           ECHO_DESC=$(echo "$ECHO_INFO" | jq -r '.description')
           
-          echo "ECHO_STARS=${ECHO_STARS}" >> $GITHUB_ENV
-          echo "ECHO_DESC=${ECHO_DESC}" >> $GITHUB_ENV
+          echo "echo_stars=${ECHO_STARS}" >> $GITHUB_OUTPUT
+          echo "echo_desc=${ECHO_DESC}" >> $GITHUB_OUTPUT
           
-          # Ottieni l'ultimo commit del branch main
           LAST_COMMIT=$(curl -s https://api.github.com/repos/brahmkshatriya/echo/commits/main)
           COMMIT_MSG=$(echo "$LAST_COMMIT" | jq -r '.commit.message' | head -n 1)
           COMMIT_SHA=$(echo "$LAST_COMMIT" | jq -r '.sha' | cut -c1-7)
           COMMIT_DATE=$(echo "$LAST_COMMIT" | jq -r '.commit.author.date')
           
-          echo "COMMIT_MSG=${COMMIT_MSG}" >> $GITHUB_ENV
-          echo "COMMIT_SHA=${COMMIT_SHA}" >> $GITHUB_ENV
-          echo "COMMIT_DATE=${COMMIT_DATE}" >> $GITHUB_ENV
+          echo "commit_msg=${COMMIT_MSG}" >> $GITHUB_OUTPUT
+          echo "commit_sha=${COMMIT_SHA}" >> $GITHUB_OUTPUT
+          echo "commit_date=${COMMIT_DATE}" >> $GITHUB_OUTPUT
       
-      - name: Create checksums file
+      - name: Create version info file
         run: |
-          echo "MD5: ${{ env.MD5_HASH }}" > CHECKSUMS.txt
-          echo "SHA256: ${{ env.SHA256_HASH }}" >> CHECKSUMS.txt
-          cat CHECKSUMS.txt
+          cat > VERSION_INFO.txt << 'EOFMARKER'
+Echo APK Version Information
+============================
+
+Version Name: ${{ steps.apk_info.outputs.version_name }}
+Version Code: ${{ steps.apk_info.outputs.version_code }}
+Package Name: ${{ steps.apk_info.outputs.package_name }}
+
+Android Requirements:
+- Minimum SDK: ${{ steps.apk_info.outputs.min_sdk }}
+- Target SDK: ${{ steps.apk_info.outputs.target_sdk }}
+
+File Information:
+- Size: ${{ steps.checksums.outputs.apk_size_mb }} MB
+- MD5: ${{ steps.checksums.outputs.md5_hash }}
+- SHA256: ${{ steps.checksums.outputs.sha256_hash }}
+
+Build Information:
+- Download Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+- Echo Commit: ${{ steps.echo_info.outputs.commit_sha }}
+- Commit Message: ${{ steps.echo_info.outputs.commit_msg }}
+EOFMARKER
+          
+          cat VERSION_INFO.txt
       
       - name: Create Release
-        if: steps.check_change.outputs.changed != 'false'
+        if: steps.check_existing.outputs.exists != 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          name: Echo Build - ${{ env.RELEASE_TAG }}
+          tag_name: ${{ steps.apk_info.outputs.release_tag }}
+          name: ${{ steps.apk_info.outputs.release_name }}
           body: |
-            ## 📦 Echo Nightly Build
+            ## 📦 Echo APK - Version ${{ steps.apk_info.outputs.version_name }}
             
             > **Note**: This repository is not affiliated with the official Echo project.
             
-            ### 📱 APK Info
-            - **Size:** ${{ env.APK_SIZE_MB }} MB
-            - **Download Date:** ${{ env.RELEASE_TAG }}
-            - **Changed:** ${{ steps.check_change.outputs.changed == 'true' && '✅ Yes' || '❌ No' }}
+            ### 📱 APK Information
+            - **Version Name:** `${{ steps.apk_info.outputs.version_name }}`
+            - **Version Code:** `${{ steps.apk_info.outputs.version_code }}`
+            - **Package Name:** `${{ steps.apk_info.outputs.package_name }}`
+            - **Size:** ${{ steps.checksums.outputs.apk_size_mb }} MB
+            
+            ### 📋 Android Requirements
+            - **Minimum SDK:** API ${{ steps.apk_info.outputs.min_sdk }}
+            - **Target SDK:** API ${{ steps.apk_info.outputs.target_sdk }}
             
             ### 🔐 Checksums
             ```
-            MD5:    ${{ env.MD5_HASH }}
-            SHA256: ${{ env.SHA256_HASH }}
+            MD5:    ${{ steps.checksums.outputs.md5_hash }}
+            SHA256: ${{ steps.checksums.outputs.sha256_hash }}
             ```
             
             ### 📝 Latest Echo Commit
-            - **Commit:** [`${{ env.COMMIT_SHA }}`](https://github.com/brahmkshatriya/echo/commit/${{ env.COMMIT_SHA }})
-            - **Message:** ${{ env.COMMIT_MSG }}
-            - **Date:** ${{ env.COMMIT_DATE }}
+            - **Commit:** [`${{ steps.echo_info.outputs.commit_sha }}`](https://github.com/brahmkshatriya/echo/commit/${{ steps.echo_info.outputs.commit_sha }})
+            - **Message:** ${{ steps.echo_info.outputs.commit_msg }}
+            - **Date:** ${{ steps.echo_info.outputs.commit_date }}
             
             ### 🔗 Links
-            - 🌟 [Echo Repository](https://github.com/brahmkshatriya/echo) (${{ env.ECHO_STARS }} stars)
+            - 🌟 [Echo Repository](https://github.com/brahmkshatriya/echo) (${{ steps.echo_info.outputs.echo_stars }} stars)
             - 📥 [Nightly Link Source](https://nightly.link/brahmkshatriya/echo/workflows/nightly/main/artifact.zip)
             
             ### 📄 Files
-            - `echo-${{ env.RELEASE_TAG }}.apk` - APK with timestamp
-            - `echo-latest.apk` - Always points to the latest version
-            - `CHECKSUMS.txt` - MD5 and SHA256 hashes
+            - `echo-${{ steps.apk_info.outputs.version_name }}.apk` - Main APK file
+            - `echo-latest.apk` - Symlink to the latest version
+            - `VERSION_INFO.txt` - Detailed version information
             
             ---
             
-            **Description:** ${{ env.ECHO_DESC }}
+            **Description:** ${{ steps.echo_info.outputs.echo_desc }}
           draft: false
           prerelease: false
           files: |
-            echo-${{ env.RELEASE_TAG }}.apk
+            echo-${{ steps.apk_info.outputs.version_name }}.apk
             echo-latest.apk
-            CHECKSUMS.txt
+            VERSION_INFO.txt
       
-      - name: Skip release (no changes)
-        if: steps.check_change.outputs.changed == 'false'
+      - name: Skip release (version exists)
+        if: steps.check_existing.outputs.exists == 'true'
         run: |
-          echo "⏭️ Saltata creazione release: L'APK non è cambiato rispetto all'ultima versione"
-          echo "ℹ️ Per forzare la creazione di una release, esegui manualmente il workflow"
-      
-      - name: Clean up old releases (keep last 10)
-        if: steps.check_change.outputs.changed != 'false'
-        continue-on-error: true
-        run: |
-          echo "🧹 Pulizia release vecchie..."
-          
-          # Ottieni tutte le release
-          RELEASES=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/releases)
-          
-          # Conta le release
-          RELEASE_COUNT=$(echo "$RELEASES" | jq '. | length')
-          echo "📊 Release totali: ${RELEASE_COUNT}"
-          
-          # Se ci sono più di 10 release, elimina le più vecchie
-          if [ "$RELEASE_COUNT" -gt 50 ]; then
-            echo "🗑️ Eliminazione delle release più vecchie (mantengo le ultime 10)..."
-            
-            # Ottieni gli ID delle release da eliminare (dalla 11 in poi)
-            DELETE_IDS=$(echo "$RELEASES" | jq -r '.[50:] | .[].id')
-            
-            for ID in $DELETE_IDS; do
-              echo "Eliminazione release ID: $ID"
-              curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                https://api.github.com/repos/${{ github.repository }}/releases/$ID
-            done
-            
-            echo "✅ Pulizia completata"
-          else
-            echo "✅ Nessuna pulizia necessaria (release: ${RELEASE_COUNT}/10)"
-          fi
+          echo "⏭️ Release ${{ steps.apk_info.outputs.release_tag }} già esistente"
+          echo "ℹ️ Nessuna nuova release creata"
       
       - name: Summary
         if: always()
         run: |
           echo "## 📊 Workflow Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Release Tag:** ${{ env.RELEASE_TAG }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **APK Size:** ${{ env.APK_SIZE_MB }} MB" >> $GITHUB_STEP_SUMMARY
-          echo "- **Changed:** ${{ steps.check_change.outputs.changed }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **MD5:** \`${{ env.MD5_HASH }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **SHA256:** \`${{ env.SHA256_HASH }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "### 📱 APK Information" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** ${{ steps.apk_info.outputs.version_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version Code:** ${{ steps.apk_info.outputs.version_code }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Package:** ${{ steps.apk_info.outputs.package_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Size:** ${{ steps.checksums.outputs.apk_size_mb }} MB" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏷️ Release" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag:** ${{ steps.apk_info.outputs.release_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Already Exists:** ${{ steps.check_existing.outputs.exists }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🔗 Quick Links" >> $GITHUB_STEP_SUMMARY
           echo "- [Latest Release](https://github.com/${{ github.repository }}/releases/latest)" >> $GITHUB_STEP_SUMMARY
           echo "- [All Releases](https://github.com/${{ github.repository }}/releases)" >> $GITHUB_STEP_SUMMARY
-
-#      - name: Generate changelog
-#        run: |
-#          # Confronta con l'ultima release e genera un changelog
-#          gh api repos/brahmkshatriya/echo/compare/${{ env.LAST_COMMIT_SHA }}...${{ env.COMMIT_SHA }} \
-#          --jq '.commits[] | "- \(.commit.message)"' > CHANGELOG.md
