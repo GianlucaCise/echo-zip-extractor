@@ -309,7 +309,10 @@ jobs:
           body: |
             ## 📦 Echo APK - Version ${{ needs.extract_info.outputs.version_name }}
             
-            > **Note**: This repository is not affiliated with the official Echo project.
+            > **Note:** This repository is not affiliated with the official Echo project.
+
+            > **License:** This APK is licensed under the Unabandon Public License (UPL).
+            > See [LICENSE-ECHO.md](https://github.com/GianlucaCise/echo-zip-extractor/blob/main/LICENSE-ECHO.md) for details.
             
             ### 📱 APK Information
             - **Version Name:** `${{ needs.extract_info.outputs.version_name }}`
