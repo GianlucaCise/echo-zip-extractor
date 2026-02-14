@@ -92,7 +92,7 @@ jobs:
           
           # Se la versione esiste, usala nel tag
           if [ -n "$VERSION_NAME" ]; then
-            RELEASE_TAG="v${VERSION_NAME}"
+            RELEASE_TAG="${VERSION_NAME}"
             echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
             echo "release_name=Echo ${VERSION_NAME}" >> $GITHUB_OUTPUT
           else
@@ -209,7 +209,10 @@ jobs:
           body: |
             ## 📦 Echo APK - Version ${{ steps.apk_info.outputs.version_name }}
             
-            > **Note**: This repository is not affiliated with the official Echo project.
+            > **Note:** This repository is not affiliated with the official Echo project.
+
+            > **License:** This APK is licensed under the Unabandon Public License (UPL).
+            > See [LICENSE-ECHO.md](https://github.com/GianlucaCise/echo-zip-extractor/blob/main/LICENSE-ECHO.md) for details.
             
             ### 📱 APK Information
             - **Version Name:** `${{ steps.apk_info.outputs.version_name }}`
