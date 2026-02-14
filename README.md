@@ -44,6 +44,20 @@ All APKs are automatically downloaded from:
 - Official Repository: [brahmkshatriya/echo](https://github.com/brahmkshatriya/echo)
 - Nightly Builds: [nightly.link](https://nightly.link/brahmkshatriya/echo/workflows/nightly/main/artifact.zip)
 
+## 📜 License
+
+### Echo Application
+Echo is licensed under UPL license.
+See [LICENSE-ECHO.md]([LICENSE-ECHO](https://github.com/GianlucaCise/echo-zip-extractor/blob/main/LICENSE-ECHO.md)) for details.
+All rights belong to the original developers.
+
+### This Repository (Automation Code)
+The GitHub Actions workflows and automation code in this repository are licensed under MIT.
+See [LICENSE.md]([LICENSE](https://github.com/GianlucaCise/echo-zip-extractor/blob/main/LICENSE.md)) for details.
+
+### Disclaimer
+This is an unofficial mirror. See [DISCLAIMER.md]([DISCLAIMER.md](https://github.com/GianlucaCise/echo-zip-extractor/blob/main/DISCLAIMER.md)) for full details.
+
 ## 🔐 Security
 
 All APKs include:
