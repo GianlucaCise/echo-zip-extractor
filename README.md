@@ -1,6 +1,6 @@
 # 📱 Echo APK Auto-Downloader
 
-> Automated nightly builds of Echo APK from official repository
+> Automated unofficial mirror of nightly builds of Echo APK
 
 > Piccola nota(si, in italiano): il counter del numero di visitor è un po' buggato perchè tiene conto anche di tutte le volte che si ricarica la pagina
 
