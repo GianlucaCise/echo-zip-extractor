@@ -1,3 +1,5 @@
+**This is the license from the original Echo project:** https://github.com/brahmkshatriya/echo/blob/main/LICENSE.md
+
 # Unabandon Public License (UPL)
 
 ```
