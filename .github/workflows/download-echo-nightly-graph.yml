@@ -1,9 +1,7 @@
-name: Download Echo APK with Version (Graph)
+name: Download (fron Nightly) Echo APK with Version (Graph)
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 0 * * *'
 
 jobs:
   # Job 1: Download APK
