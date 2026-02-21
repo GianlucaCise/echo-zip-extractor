@@ -205,7 +205,7 @@ jobs:
           echo "target_sdk=${TARGET_SDK}" >> $GITHUB_OUTPUT
           
           if [ -n "$VERSION_NAME" ]; then
-            RELEASE_TAG="v${VERSION_NAME}"
+            RELEASE_TAG="${VERSION_NAME}"
             echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
             echo "release_name=Echo ${VERSION_NAME}" >> $GITHUB_OUTPUT
           else
