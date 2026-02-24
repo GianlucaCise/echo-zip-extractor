@@ -312,6 +312,7 @@ jobs:
           } > VERSION_INFO.txt
       
       - name: Create Release
+        if: steps.download.outputs.download_success == 'true' && steps.check_existing.outputs.exists != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.apk_info.outputs.release_tag }}
